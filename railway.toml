@@ -8,7 +8,9 @@ restartPolicyMaxRetries = 10
 healthcheckPath = "/"
 healthcheckTimeout = 100
 healthcheckInterval = 30
+healthcheckPort = 8000
 
 [env]
 PYTHON_VERSION = "3.11"
 NODE_ENV = "production"
+PORT = "8000"

@@ -34,7 +34,7 @@ def get_cefr_keyboard():
 def get_speaking_parts_keyboard():
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(text="Part 1 - Introduction (30s)", callback_data="speaking_part_1")],
-        [InlineKeyboardButton(text="Part 1.2 - Pictures (30s)", callback_data="speaking_part_12")],
+        [InlineKeyboardButton(text="Part 1.2 - Pictures (30s) 🖼️", callback_data="speaking_part_12")],
         [InlineKeyboardButton(text="Part 2 - Situation (2min)", callback_data="speaking_part_2")],
         [InlineKeyboardButton(text="Part 3 - Topic (2min)", callback_data="speaking_part_3")],
     ])
@@ -72,6 +72,7 @@ def get_main_keyboard():
         [KeyboardButton("🎧 Speaking Partner")],
         [KeyboardButton("📖 Reading")],
         [KeyboardButton("🎙 Listening")],
+        [KeyboardButton("🔥 My Streak")],
         [KeyboardButton("📊 My Progress")],
         [KeyboardButton("🏆 Top Users")],
     ], resize_keyboard=True)
@@ -428,7 +429,7 @@ async def list_channels_command(update: Update, context: ContextTypes.DEFAULT_TY
                 "Use /addchannel @channel_name to add channels.",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton(text="➕ Add Channel", callback_data="add_channel")],
-                    [InlineKeyboardButton(text="🔙 Back to Channel Management", callback_data="channel_management")],
+                    [InlineKeyboardButton(text="🔙 Back to Admin Panel", callback_data="admin_back")],
                 ])
             )
             return
@@ -451,6 +452,58 @@ async def list_channels_command(update: Update, context: ContextTypes.DEFAULT_TY
     except Exception as e:
         logging.error(f"Error in list_channels_command: {e}")
         await update.message.reply_text("❌ Error listing channels.")
+
+async def streak_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show user's current streak and statistics"""
+    telegram_id = update.effective_user.id
+    
+    try:
+        user = await sync_to_async(User.objects.get)(telegram_id=telegram_id)
+        
+        from datetime import date, timedelta
+        today = date.today()
+        
+        # Calculate streak status
+        streak_status = ""
+        if user.last_practice_date == today:
+            streak_status = "🔥 **Active today!**"
+        elif user.last_practice_date == today - timedelta(days=1):
+            streak_status = "⏰ **Practice today to keep your streak!**"
+        else:
+            streak_status = "❌ **Streak broken - start a new one!**"
+        
+        # Milestone badges
+        badges = []
+        if user.streak >= 30:
+            badges.append("🏆 **Master Streaker** (30+ days)")
+        elif user.streak >= 14:
+            badges.append("🥈 **Dedicated Learner** (14+ days)")
+        elif user.streak >= 7:
+            badges.append("🥉 **Week Warrior** (7+ days)")
+        elif user.streak >= 3:
+            badges.append("⭐ **Rising Star** (3+ days)")
+        elif user.streak >= 1:
+            badges.append("🌟 **Beginner** (1+ days)")
+        
+        badge_text = "\n".join(badges) if badges else "📚 **No badges yet - start practicing!**"
+        
+        streak_text = (
+            f"🔥 **Your Streak Statistics** 🔥\n\n"
+            f"📅 **Current Streak:** {user.streak} days\n"
+            f"📊 **Status:** {streak_status}\n"
+            f"🗓️ **Last Practice:** {user.last_practice_date or 'Never'}\n\n"
+            f"🏆 **Your Badges:**\n{badge_text}\n\n"
+            f"💡 **Tips:**\n"
+            f"• Practice daily to maintain your streak\n"
+            f"• Earn bonus coins for longer streaks\n"
+            f"• Unlock special achievements at milestones"
+        )
+        
+        await update.message.reply_text(streak_text, reply_markup=get_main_keyboard())
+        
+    except Exception as e:
+        logging.error(f"Error in streak_command: {e}")
+        await update.message.reply_text("❌ Error loading streak data.")
 
 async def check_channel_subscription(user_id, channel_username):
     """Check if user is subscribed to channel"""
@@ -532,15 +585,43 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             context.user_data['registration_step'] = 'full_name'
         else:
-            await update.message.reply_text(
-                f"👋 Welcome back, {user.full_name}! 👋\n\n"
-                f"📈 Current Level: {user.current_level}\n"
-                f"🎯 Target Level: {user.target_level}\n"
-                f"⭐ Total Score: {user.total_score}\n"
-                f"🔥 Streak: {user.streak} days\n\n"
-                "Choose what you want to practice:",
-                reply_markup=get_main_keyboard()
-            )
+            # Check if user can get daily bonus
+            from datetime import date
+            today = date.today()
+            daily_bonus_given = False
+            
+            if user.last_practice_date != today:
+                # Give daily login bonus
+                await sync_to_async(user.update_streak)()
+                bonus_coins = 10 + (user.streak * 2)  # Bonus increases with streak
+                bonus_xp = 5 + user.streak
+                await sync_to_async(user.add_coins)(bonus_coins)
+                await sync_to_async(user.add_xp)(bonus_xp)
+                await sync_to_async(user.save)()
+                daily_bonus_given = True
+            
+            welcome_msg = f"👋 Welcome back, {user.full_name}! 👋\n\n"
+            
+            if daily_bonus_given:
+                welcome_msg += f"🎉 **Daily Login Bonus!** 🎉\n"
+                welcome_msg += f"💰 +{bonus_coins} coins\n"
+                welcome_msg += f"⚡ +{bonus_xp} XP\n"
+                if user.streak == 1:
+                    welcome_msg += f"🔥 **New streak started!**\n\n"
+                elif user.streak % 7 == 0:
+                    welcome_msg += f"🔥 **{user.streak} day streak! Amazing!** 🔥\n\n"
+                else:
+                    welcome_msg += f"� **Streak: {user.streak} days**\n\n"
+            
+            welcome_msg += f"� Current Level: {user.current_level}\n"
+            welcome_msg += f"🎯 Target Level: {user.target_level}\n"
+            welcome_msg += f"⭐ Total Score: {user.total_score}\n"
+            welcome_msg += f"🔥 Streak: {user.streak} days\n"
+            welcome_msg += f"💰 Coins: {user.coins}\n"
+            welcome_msg += f"⚡ XP: {user.xp}\n\n"
+            welcome_msg += "Choose what you want to practice:"
+            
+            await update.message.reply_text(welcome_msg, reply_markup=get_main_keyboard())
     except Exception as e:
         logging.error(f"Error in start_command: {e}")
         await update.message.reply_text("Sorry, there was an error. Please try again.")
@@ -617,7 +698,26 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
             user = await sync_to_async(User.objects.get)(telegram_id=telegram_id)
             user.total_score += int(evaluation['overall_score'] * 10)
             user.last_login = datetime.now()
+            
+            # Update streak
+            await sync_to_async(user.update_streak)()
+            
+            # Add XP and coins for practice
+            xp_earned = int(evaluation['overall_score'] * 20)
+            coins_earned = int(evaluation['overall_score'] * 5)
+            await sync_to_async(user.add_xp)(xp_earned)
+            await sync_to_async(user.add_coins)(coins_earned)
+            
+            # Update speaking score
+            user.speaking_score = (user.speaking_score + evaluation['overall_score']) / 2
+            
             await sync_to_async(user.save)()
+            
+            # Show streak update
+            if user.streak > 1:
+                streak_msg = f"\n🔥 **Streak updated: {user.streak} days!** Keep it up!"
+                await update.message.reply_text(streak_msg)
+                
         except Exception as e:
             logging.error(f"Error updating user progress: {e}")
         
@@ -695,7 +795,26 @@ async def handle_writing_submission(update: Update, context: ContextTypes.DEFAUL
             user = await sync_to_async(User.objects.get)(telegram_id=user_id)
             user.total_score += int(evaluation['overall_score'] * 15)
             user.last_login = datetime.now()
+            
+            # Update streak
+            await sync_to_async(user.update_streak)()
+            
+            # Add XP and coins for practice
+            xp_earned = int(evaluation['overall_score'] * 25)
+            coins_earned = int(evaluation['overall_score'] * 8)
+            await sync_to_async(user.add_xp)(xp_earned)
+            await sync_to_async(user.add_coins)(coins_earned)
+            
+            # Update writing score
+            user.writing_score = (user.writing_score + evaluation['overall_score']) / 2
+            
             await sync_to_async(user.save)()
+            
+            # Show streak update
+            if user.streak > 1:
+                streak_msg = f"\n🔥 **Streak updated: {user.streak} days!** Keep it up!"
+                await update.message.reply_text(streak_msg)
+                
         except Exception as e:
             logging.error(f"Error updating user progress: {e}")
         
@@ -750,7 +869,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
         
         # Handle main menu
-        elif text == "📊 My Progress":
+        elif text == "� My Streak":
+            await streak_command(update, context)
+            
+        elif text == "� My Progress":
             await progress_command(update, context)
             
         elif text == "🏆 Top Users":
@@ -886,13 +1008,43 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Get random question for this part
             import random
-            questions = [
-                f"Tell me about yourself and your hobbies.",
-                f"Describe your family and friends.",
-                f"Talk about your daily routine.",
-                f"Describe a memorable trip you took.",
-                f"Discuss the advantages of online learning."
-            ]
+            if part == "12":  # Part 1.2 - Pictures
+                questions = [
+                    f"Describe the picture you see in detail.",
+                    f"Talk about what's happening in this picture.",
+                    f"Explain how this picture makes you feel.",
+                    f"Compare and contrast two pictures you see.",
+                    f"Tell a story based on this picture sequence.",
+                    f"Describe the relationship between people in this picture."
+                ]
+                part_name = "Part 1.2 - Pictures"
+                image_instruction = "🖼️ **Picture Description Task** 🖼️\n\n"
+                time_limit = "2 minutes"
+                tips = [
+                    "• Describe everything you see in the picture",
+                    "• Use descriptive language and adjectives",
+                    "• Talk about colors, shapes, and positions",
+                    "• Mention people, objects, and background",
+                    "• Organize your description logically",
+                    "• Speak for the full time limit"
+                ]
+            else:  # Other parts
+                questions = [
+                    f"Tell me about yourself and your hobbies.",
+                    f"Describe your family and friends.",
+                    f"Talk about your daily routine.",
+                    f"Describe a memorable trip you took.",
+                    f"Discuss the advantages of online learning."
+                ]
+                part_name = f"Speaking Part {part}"
+                image_instruction = ""
+                time_limit = "2 minutes"
+                tips = [
+                    "• Speak clearly and at a moderate pace",
+                    "• Use appropriate vocabulary for your level",
+                    "• Try to speak for at least 1 minute"
+                ]
+            
             question = random.choice(questions)
             
             # Store question in user data
@@ -900,15 +1052,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['speaking_part'] = part
             
             await query.edit_message_text(
-                f"🎤 **Speaking Part {part}**\n\n"
+                f"🎤 **{part_name}**\n\n"
+                + image_instruction +
                 f"📝 **Question:** {question}\n\n"
-                f"⏱️ **Time:** 2 minutes\n"
+                f"⏱️ **Time:** {time_limit}\n"
                 f"📊 **Level:** {context.user_data.get('current_level', 'A1')}\n\n"
                 f"🎙️ Please record your voice and send it as a voice message.\n\n"
                 f"Tips:\n"
-                f"• Speak clearly and at a moderate pace\n"
-                f"• Use appropriate vocabulary for your level\n"
-                f"• Try to speak for at least 1 minute\n\n"
+                + "\n".join(tips) + "\n\n"
                 f"Ready when you are! 🎯",
                 reply_markup=get_speaking_actions_keyboard()
             )
@@ -990,7 +1141,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop('speaking_part', None)
             context.user_data.pop('writing_task', None)
             
-            await query.edit_message_text(
+            # Send new message with main keyboard
+            await query.message.reply_text(
                 "🔙 **Returning to Main Menu**\n\n"
                 "Choose what you want to practice:",
                 reply_markup=get_main_keyboard()
@@ -1208,6 +1360,7 @@ def main():
         application.add_handler(CommandHandler("active", active_command))
         application.add_handler(CommandHandler("top", top_command))
         application.add_handler(CommandHandler("progress", progress_command))
+        application.add_handler(CommandHandler("streak", streak_command))
         application.add_handler(CommandHandler("channel", channel_command))
         application.add_handler(CommandHandler("addchannel", add_channel_command))
         application.add_handler(CommandHandler("removechannel", remove_channel_command))

@@ -18,7 +18,7 @@ User = get_user_model()
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
-# CEFR levels keyboard
+# CEFR Level keyboard
 def get_cefr_keyboard():
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(text="A1 - Beginner", callback_data="level_A1")],
@@ -32,7 +32,7 @@ def get_cefr_keyboard():
 
 def get_main_keyboard():
     keyboard = ReplyKeyboardMarkup([
-        [KeyboardButton("🎧 Speaking Partner")],
+        [KeyboardButton(" Speaking Partner")],
         [KeyboardButton("📖 Reading")],
         [KeyboardButton("🎙 Listening")],
         [KeyboardButton("🔥 My Streak")],
@@ -48,8 +48,184 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Add your admin Telegram IDs here
     ADMIN_IDS = [
         5475526744,
-        5687217504,
+        5687217504
+        # Replace with actual admin Telegram IDs
+        # For example: 123456789, 987654321
+        # For now, we'll use the first user who registers as admin
     ]
+    
+    # For demo purposes, make the first user admin
+    if not ADMIN_IDS:
+        # Get first user and make them admin
+        first_user = await sync_to_async(User.objects.first)()
+        if first_user and first_user.telegram_id == telegram_id:
+            ADMIN_IDS.append(telegram_id)
+    
+    if telegram_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Access denied. Admin only.\n\nTo become admin, add your Telegram ID to the ADMIN_IDS list in bot.py")
+        return
+    
+    try:
+        # Get statistics
+        total_users = await sync_to_async(User.objects.count)()
+        active_users = await sync_to_async(
+            lambda: User.objects.filter(last_login__gte=datetime.now() - timedelta(days=7)).count()
+        )()
+        today_users = await sync_to_async(
+            lambda: User.objects.filter(date_joined__date=datetime.now().date()).count()
+        )()
+        
+        stats_text = (
+            f"🔧 **Admin Panel** 🔧\n\n"
+            f"👥 Total Users: {total_users}\n"
+            f"🟢 Active Users (7 days): {active_users}\n"
+            f"📅 New Users Today: {today_users}\n\n"
+            f"**Available Commands:**\n"
+            f"/stats - Quick statistics\n"
+            f"/users - All users list\n"
+            f"/active - Active users (7 days)\n"
+            f"/top - Top users by score\n"
+            f"/channel - Manage required channels"
+        )
+        
+        await update.message.reply_text(stats_text)
+        
+    except Exception as e:
+        logging.error(f"Error in admin command: {e}")
+        await update.message.reply_text("❌ Error loading admin panel.")
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /stats command for quick stats"""
+    try:
+        total_users = await sync_to_async(User.objects.count)()
+        active_today = await sync_to_async(
+            lambda: User.objects.filter(last_login__date=datetime.now().date()).count()
+        )()
+        
+        stats_text = (
+            f"📊 **Quick Statistics** 📊\n\n"
+            f"👥 Total Users: {total_users}\n"
+            f"🟢 Active Today: {active_today}\n"
+            f"🤖 Bot Status: ✅ Online"
+        )
+        
+        await update.message.reply_text(stats_text)
+        
+    except Exception as e:
+        logging.error(f"Error in stats command: {e}")
+        await update.message.reply_text("❌ Error loading statistics.")
+
+async def users_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /users command"""
+    try:
+        users = await sync_to_async(
+            lambda: list(User.objects.all().order_by('-date_joined')[:20])
+        )()
+        
+        user_list = "\n".join([
+            f"👤 {user.full_name} - Level: {user.current_level} - Score: {user.total_score}"
+            for user in users
+        ])
+        
+        stats_text = (
+            f"👥 **Recent Users** 👥\n\n"
+            f"{user_list}\n\n"
+            f"Showing last 20 users"
+        )
+        
+        await update.message.reply_text(stats_text)
+        
+    except Exception as e:
+        logging.error(f"Error in users command: {e}")
+        await update.message.reply_text("❌ Error loading users list.")
+
+async def active_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /active command"""
+    try:
+        active_users = await sync_to_async(
+            lambda: list(User.objects.filter(
+                last_login__gte=datetime.now() - timedelta(days=7)
+            ).order_by('-last_login')[:15])
+        )()
+        
+        user_list = "\n".join([
+            f"🟢 {user.full_name} - Level: {user.current_level} - Score: {user.total_score}"
+            for user in active_users
+        ])
+        
+        stats_text = (
+            f"🟢 **Active Users (Last 7 Days)** 🟢\n\n"
+            f"{user_list}\n\n"
+            f"Showing last 15 active users"
+        )
+        
+        await update.message.reply_text(stats_text)
+        
+    except Exception as e:
+        logging.error(f"Error in active command: {e}")
+        await update.message.reply_text("❌ Error loading active users.")
+
+async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /progress command"""
+    telegram_id = update.effective_user.id
+    
+    try:
+        user = await sync_to_async(User.objects.get)(telegram_id=telegram_id)
+        
+        # Calculate rank
+        rank_count = await sync_to_async(
+            lambda: User.objects.filter(total_score__gt=user.total_score).count()
+        )()
+        rank = rank_count + 1
+        
+        progress_text = (
+            f"📊 **Your Progress** 📊\n\n"
+            f"👤 **Name:** {user.full_name}\n"
+            f"📈 **Current Level:** {user.current_level}\n"
+            f"🎯 **Target Level:** {user.target_level}\n"
+            f"⭐ **Total Score:** {user.total_score}\n"
+            f"🔥 **Streak:** {user.streak} days\n"
+            f"📅 **Member Since:** {user.date_joined.strftime('%Y-%m-%d')}\n\n"
+            f"🏆 **Rank:** #{rank}\n\n"
+            f"Keep practicing! 🚀"
+        )
+        
+        await update.message.reply_text(progress_text, reply_markup=get_main_keyboard())
+        
+    except Exception as e:
+        logging.error(f"Error in progress command: {e}")
+        await update.message.reply_text("❌ Error loading progress data.")
+
+async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /top command"""
+    try:
+        top_users = await sync_to_async(
+            lambda: list(User.objects.order_by('-total_score')[:15])
+        )()
+        
+        user_list = "\n".join([
+            f"🏆 {i+1}. {user.full_name} - Score: {user.total_score} - Level: {user.current_level}"
+            for i, user in enumerate(top_users)
+        ])
+        
+        stats_text = (
+            f"🏆 **Top Users by Score** 🏆\n\n"
+            f"{user_list}\n\n"
+            f"Showing top 15 users"
+        )
+        
+        await update.message.reply_text(stats_text)
+        
+    except Exception as e:
+        logging.error(f"Error in top command: {e}")
+        await update.message.reply_text("❌ Error loading top users.")
+
+async def channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /channel command for managing required channels"""
+    telegram_id = update.effective_user.id
+    
+    # Check if admin
+    ADMIN_IDS = [5475526744, 5687217504]
     
     if telegram_id not in ADMIN_IDS:
         await update.message.reply_text("❌ Access denied. Admin only.")
@@ -73,8 +249,8 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
     except Exception as e:
-        logging.error(f"Error in admin command: {e}")
-        await update.message.reply_text("❌ Error loading admin panel.")
+        logging.error(f"Error in channel command: {e}")
+        await update.message.reply_text("❌ Error loading channel management.")
 
 async def add_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /addchannel command"""
@@ -169,7 +345,7 @@ async def remove_channel_command(update: Update, context: ContextTypes.DEFAULT_T
             await update.message.reply_text(
                 f"✅ **Channel Removed Successfully** ✅\n\n"
                 f"📢 Channel: {channel_name}\n"
-                f"📝 Status: Inactive\n"
+                f"📝 Status: Removed from required list\n"
                 f"👥 Users no longer need to subscribe to this channel\n\n"
                 f"Use /listchannels to see current required channels.",
                 reply_markup=InlineKeyboardMarkup([
@@ -180,13 +356,12 @@ async def remove_channel_command(update: Update, context: ContextTypes.DEFAULT_T
             )
         else:
             await update.message.reply_text(
-                f"📝 **Channel Not Found** 📝\n\n"
+                f"❌ **Channel Not Found** ❌\n\n"
                 f"📢 Channel: {channel_name}\n"
                 f"📝 Status: Not in required list\n\n"
-                f"Use /listchannels to see current required channels.",
+                f"Use /listchannels to see all required channels.",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton(text="📋 List All Channels", callback_data="list_channels")],
-                    [InlineKeyboardButton(text="➕ Add Another Channel", callback_data="add_channel")],
                     [InlineKeyboardButton(text="🔙 Back to Channel Management", callback_data="channel_management")],
                 ])
             )
@@ -293,6 +468,23 @@ async def streak_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"Error in streak_command: {e}")
         await update.message.reply_text("❌ Error loading streak data.")
 
+async def check_channel_subscription(user_id, channel_username):
+    """Check if user is subscribed to channel"""
+    try:
+        # Remove @ if present
+        channel = channel_username.replace('@', '')
+        
+        # Check subscription using bot API
+        chat_member = await context.bot.get_chat_member(
+            chat_id=f"@{channel}",
+            user_id=user_id
+        )
+        
+        return chat_member.status in ['member', 'administrator', 'creator']
+    except Exception as e:
+        logging.error(f"Error checking channel subscription: {e}")
+        return False
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command"""
     telegram_id = update.effective_user.id
@@ -316,7 +508,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 unsubscribed_channels.append(channel)
         except Exception as e:
             # If bot is admin, it can check membership
-            # If not admin, skip check for this channel
+            # If not admin, skip the check for this channel
             logging.warning(f"Could not check channel {channel}: {e}")
             # Don't add to unsubscribed if we can't check
             continue
@@ -331,7 +523,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await update.message.reply_text(
             "🔒 **Subscription Required** 🔒\n\n"
-            "To use this bot, you need to subscribe to following channels:\n\n"
+            "To use this bot, you need to subscribe to the following channels:\n\n"
             + "\n".join([f"📢 {channel}" for channel in unsubscribed_channels]) +
             "\n\nPlease subscribe to all channels and then click the button below:",
             reply_markup=InlineKeyboardMarkup(channel_buttons)
@@ -382,9 +574,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elif user.streak % 7 == 0:
                     welcome_msg += f"🔥 **{user.streak} day streak! Amazing!** 🔥\n\n"
                 else:
-                    welcome_msg += f"🔥 **Streak: {user.streak} days**\n\n"
+                    welcome_msg += f"� **Streak: {user.streak} days**\n\n"
             
-            welcome_msg += f"📈 Current Level: {user.current_level}\n"
+            welcome_msg += f"� Current Level: {user.current_level}\n"
             welcome_msg += f"🎯 Target Level: {user.target_level}\n"
             welcome_msg += f"⭐ Total Score: {user.total_score}\n"
             welcome_msg += f"🔥 Streak: {user.streak} days\n"
@@ -433,16 +625,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
         
         # Handle main menu
-        elif text == "🔥 My Streak":
+        elif text == "� My Streak":
             await streak_command(update, context)
             
-        elif text == "📊 My Progress":
+        elif text == "� My Progress":
             await progress_command(update, context)
             
         elif text == "🏆 Top Users":
             await top_command(update, context)
             
-        elif text == "🎧 Speaking Partner":
+        elif text == " Speaking Partner":
             await update.message.reply_text(
                 "🎧 Speaking Partner\n\n"
                 "Opening AI speaking partner in your browser...\n"
@@ -516,39 +708,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=get_cefr_keyboard()
                 )
                 context.user_data['registration_step'] = 'target_level'
-            else:
-                # Complete registration
-                full_name = context.user_data.get('full_name', 'User')
-                age = context.user_data.get('age', 0)
-                current_level = context.user_data.get('current_level', 'A1')
-                target_level = level
-                
-                # Update user in database
-                telegram_id = update.effective_user.id
-                user = await sync_to_async(User.objects.get)(telegram_id=telegram_id)
-                user.full_name = full_name
-                user.age = age
-                user.current_level = current_level
-                user.target_level = target_level
-                user.daily_goal = 30  # Default daily goal
-                await sync_to_async(user.save)()
-                
-                await query.edit_message_text(
-                    f"🎉 Registration completed!\n\n"
-                    f"Name: {full_name}\n"
-                    f"Level: {current_level} → {target_level}\n"
-                    f"Daily Goal: 30 minutes\n\n"
-                    "You're all set! Choose what you want to practice:",
-                    reply_markup=None
-                )
-                
-                # Send new message with main keyboard
-                await query.message.reply_text(
-                    "Main Menu:",
-                    reply_markup=get_main_keyboard()
-                )
-                
-        elif data.startswith("channel_management"):
+            elif data.startswith("channel_management"):
             await query.edit_message_text(
                 "📢 **Channel Management** 📢\n\n"
                 "Options:\n"
@@ -567,7 +727,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data.startswith("add_channel"):
             await query.edit_message_text(
                 "➕ **Add New Channel**\n\n"
-                "Please send channel name using the command:\n\n"
+                "Please send the channel name using the command:\n\n"
                 "/addchannel @channel_name\n\n"
                 "Example: /addchannel @mychannel",
                 reply_markup=InlineKeyboardMarkup([
@@ -578,7 +738,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data.startswith("remove_channel"):
             await query.edit_message_text(
                 "🗑️ **Remove Channel**\n\n"
-                "Please send channel name using the command:\n\n"
+                "Please send the channel name using the command:\n\n"
                 "/removechannel @channel_name\n\n"
                 "Example: /removechannel @mychannel",
                 reply_markup=InlineKeyboardMarkup([
@@ -587,8 +747,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
         elif data.startswith("list_channels"):
-            # Get channels from channel manager
-            channels = get_required_channels()
+            # For now, show hardcoded channels (you can fetch from database later)
+            channels = ["@SirojiddinovAcademy"]
             
             if not channels:
                 await query.edit_message_text(
@@ -597,7 +757,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "Use /addchannel @channel_name to add channels.",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton(text="➕ Add Channel", callback_data="add_channel")],
-                        [InlineKeyboardButton(text="🔙 Back to Admin Panel", callback_data="admin_back")],
+                        [InlineKeyboardButton(text="🔙 Back to Channel Management", callback_data="channel_management")],
                     ])
                 )
                 return
@@ -613,7 +773,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton(text="➕ Add Channel", callback_data="add_channel")],
                     [InlineKeyboardButton(text="🗑️ Remove Channel", callback_data="remove_channel")],
-                    [InlineKeyboardButton(text="🔙 Back to Admin Panel", callback_data="admin_back")],
+                    [InlineKeyboardButton(text="🔙 Back to Channel Management", callback_data="channel_management")],
                 ])
             )
             
@@ -629,36 +789,88 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_member = await context.bot.get_chat_member(
                         chat_id=channel,
                         user_id=telegram_id
-                    )
-                    if chat_member.status not in ['member', 'administrator', 'creator']:
-                        unsubscribed_channels.append(channel)
-                except Exception as e:
-                    logging.warning(f"Could not check channel {channel}: {e}")
-                    # Don't add to unsubscribed if we can't check
-                    continue
-            
-            if unsubscribed_channels:
-                await query.edit_message_text(
-                    "❌ **Still Not Subscribed** ❌\n\n"
-                    "You still need to subscribe to:\n\n"
-                    + "\n".join([f"📢 {channel}" for channel in unsubscribed_channels]) +
-                    "\n\nPlease subscribe to all channels and try again.",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton(text="✅ Check Again", callback_data="check_subscription")]
-                    ])
-                )
             else:
+                # Complete registration
+                full_name = context.user_data.get('full_name', 'User')
+                age = context.user_data.get('age', 0)
+                current_level = context.user_data.get('current_level', 'A1')
+                target_level = level
+                
+                # Update user in database
+                telegram_id = update.effective_user.id
+                user = await sync_to_async(User.objects.get)(telegram_id=telegram_id)
+                user.full_name = full_name
+                user.age = age
+                user.current_level = current_level
+                user.target_level = target_level
+                user.daily_goal = 30  # Default daily goal
+                await sync_to_async(user.save)()
+                
                 await query.edit_message_text(
-                    "✅ **Subscription Verified!** ✅\n\n"
-                    "Thank you for subscribing! You can now use the bot.\n\n"
-                    "Please send /start to continue with registration.",
+                    " Registration completed!\n\n"
+                    "Name: {full_name}\n"
+                    "Level: {current_level} → {target_level}\n"
+                    "Daily Goal: 30 minutes\n\n"
+                    "You're all set! Choose what you want to practice:",
                     reply_markup=None
                 )
                 
+                # Send new message with main keyboard
+                await query.message.reply_text(
+                    "Main Menu:",
+                    reply_markup=get_main_keyboard()
+                        [InlineKeyboardButton(text=" Back to Admin Panel", callback_data="admin_back")],
+                    ])
+                )
+                return
+            
+            channels_text = "\n".join([f" {i+1}. {channel}" for i, channel in enumerate(channels)])
+            
+            await query.edit_message_text(
+                f" **Required Channels** \n\n"
+                f"{channels_text}\n\n"
+                f" Total: {len(channels)} channels\n"
+                f" Users must subscribe to all these channels\n\n"
+                f"Admin can manage these channels using /channel command.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(text=" Add Channel", callback_data="add_channel")],
+                    [InlineKeyboardButton(text=" Remove Channel", callback_data="remove_channel")],
+                    [InlineKeyboardButton(text=" Back to Admin Panel", callback_data="admin_back")],
+                ])
+            )
+            
+        elif data.startswith("add_channel"):
+            await query.edit_message_text(
+                " **Add Channel** \n\n"
+                "To add a new required channel, use:\n"
+                "/addchannel @channel_name\n\n"
+                "The bot will require users to subscribe to this channel.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(text=" Back to Channel Management", callback_data="back_to_channel")],
+                    [InlineKeyboardButton(text=" Back to Admin Panel", callback_data="admin_back")]
+                ])
+            )
+            
+        elif data.startswith("back_to_channel"):
+            await query.edit_message_text(
+                " **Channel Management** \n\n"
+                "Options:\n"
+                "/addchannel @channel_name - Add required channel\n"
+                "/removechannel @channel_name - Remove required channel\n"
+                "/listchannels - List all required channels\n"
+                "/checkchannel @channel_name - Check channel subscription\n\n"
+                "Users will need to subscribe to these channels before using the bot.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(text="📋 List Current Channels", callback_data="list_channels")],
+                    [InlineKeyboardButton(text="➕ Add New Channel", callback_data="add_channel")],
+                    [InlineKeyboardButton(text="🔙 Back to Admin Panel", callback_data="admin_back")],
+                ])
+            )
+            
         elif data.startswith("admin_back"):
             await query.edit_message_text(
                 "🔙 **Admin Panel** 🔙\n\n"
-                "Use /admin to return to admin panel.",
+                "Use /admin to return to the admin panel.",
                 reply_markup=None
             )
             
@@ -667,174 +879,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await query.edit_message_text("Sorry, there was an error. Please try again.")
         except:
-            # If we can't edit message, just answer the callback
+            # If we can't edit the message, just answer the callback
             pass
-
-async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /progress command"""
-    telegram_id = update.effective_user.id
-    
-    try:
-        user = await sync_to_async(User.objects.get)(telegram_id=telegram_id)
-        
-        progress_text = (
-            f"📊 Your Progress 📈\n\n"
-            f"👤 {user.full_name}\n"
-            f"📈 Current Level: {user.current_level}\n"
-            f"🎯 Target Level: {user.target_level}\n"
-            f"⭐ Total Score: {user.total_score}\n"
-            f"🎤 Speaking Score: {user.speaking_score:.1f}/5.0\n"
-            f"✍️ Writing Score: {user.writing_score:.1f}/5.0\n"
-            f"🔥 Streak: {user.streak} days\n"
-            f"💰 Coins: {user.coins}\n"
-            f"⚡ XP: {user.xp}\n"
-            f"⏱️ Total Practice: {user.total_practice_time} min\n"
-            f"📅 Daily Goal: {user.daily_goal} min"
-        )
-        
-        await update.message.reply_text(progress_text, reply_markup=get_main_keyboard())
-        
-    except Exception as e:
-        logging.error(f"Error in progress_command: {e}")
-        await update.message.reply_text("❌ Error loading progress.")
-
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /stats command"""
-    telegram_id = update.effective_user.id
-    
-    # Check if admin
-    ADMIN_IDS = [5475526744, 5687217504]
-    
-    if telegram_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Access denied. Admin only.")
-        return
-    
-    try:
-        # Get statistics
-        total_users = await sync_to_async(User.objects.count)()
-        active_users = await sync_to_async(
-            User.objects.filter(last_login__gte=datetime.now() - timedelta(days=7)).count
-        )()
-        
-        stats_text = (
-            f"📊 **Bot Statistics** 📊\n\n"
-            f"👥 Total Users: {total_users}\n"
-            f"🟢 Active Users (7 days): {active_users}\n"
-            f"📅 Daily Active: {await sync_to_async(User.objects.filter(last_login__gte=datetime.now() - timedelta(days=1)).count)()}\n\n"
-            f"🔧 Admin Commands:\n"
-            f"• /admin - Admin panel\n"
-            f"• /stats - Bot statistics\n"
-            f"• /users - User list\n"
-            f"• /channel - Channel management"
-        )
-        
-        await update.message.reply_text(stats_text)
-        
-    except Exception as e:
-        logging.error(f"Error in stats_command: {e}")
-        await update.message.reply_text("❌ Error loading statistics.")
-
-async def users_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /users command"""
-    telegram_id = update.effective_user.id
-    
-    # Check if admin
-    ADMIN_IDS = [5475526744, 5687217504]
-    
-    if telegram_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Access denied. Admin only.")
-        return
-    
-    try:
-        # Get all users
-        users = await sync_to_async(User.objects.all().order_by('-total_score')[:10])()
-        
-        if not users:
-            await update.message.reply_text("❌ No users found.")
-            return
-        
-        users_text = "🏆 **Top Users** 🏆\n\n"
-        for i, user in enumerate(users, 1):
-            users_text += f"{i}. 👤 {user.full_name}\n"
-            users_text += f"   📊 Score: {user.total_score}\n"
-            users_text += f"   🔥 Streak: {user.streak} days\n"
-            users_text += f"   💰 Coins: {user.coins}\n"
-            users_text += f"   ⚡ XP: {user.xp}\n\n"
-        
-        await update.message.reply_text(users_text)
-        
-    except Exception as e:
-        logging.error(f"Error in users_command: {e}")
-        await update.message.reply_text("❌ Error loading users.")
-
-async def active_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /active command"""
-    telegram_id = update.effective_user.id
-    
-    # Check if admin
-    ADMIN_IDS = [5475526744, 5687217504]
-    
-    if telegram_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Access denied. Admin only.")
-        return
-    
-    try:
-        # Get active users
-        active_users = await sync_to_async(
-            User.objects.filter(last_login__gte=datetime.now() - timedelta(days=7)).order_by('-last_login')[:10]
-        )()
-        
-        if not active_users:
-            await update.message.reply_text("❌ No active users found.")
-            return
-        
-        active_text = "🟢 **Active Users** 🟢\n\n"
-        for i, user in enumerate(active_users, 1):
-            active_text += f"{i}. 👤 {user.full_name}\n"
-            active_text += f"   📅 Last Active: {user.last_login}\n"
-            active_text += f"   🔥 Streak: {user.streak} days\n"
-            active_text += f"   💰 Coins: {user.coins}\n\n"
-        
-        await update.message.reply_text(active_text)
-        
-    except Exception as e:
-        logging.error(f"Error in active_command: {e}")
-        await update.message.reply_text("❌ Error loading active users.")
-
-async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /top command"""
-    telegram_id = update.effective_user.id
-    
-    try:
-        # Get top users
-        top_users = await sync_to_async(User.objects.all().order_by('-total_score')[:10])()
-        
-        if not top_users:
-            await update.message.reply_text("❌ No users found.")
-            return
-        
-        top_text = "🏆 **Top Users** 🏆\n\n"
-        for i, user in enumerate(top_users, 1):
-            top_text += f"{i}. 👤 {user.full_name}\n"
-            top_text += f"   📊 Score: {user.total_score}\n"
-            top_text += f"   🔥 Streak: {user.streak} days\n"
-            top_text += f"   💰 Coins: {user.coins}\n"
-            top_text += f"   ⚡ XP: {user.xp}\n\n"
-        
-        await update.message.reply_text(top_text)
-        
-    except Exception as e:
-        logging.error(f"Error in top_command: {e}")
-        await update.message.reply_text("❌ Error loading top users.")
 
 def main():
     """Main function to start bot"""
     try:
-        # Set up Django settings
-        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'apps.config.settings')
-        django.setup()
-        
-        # Create application
         application = Application.builder().token(settings.TELEGRAM_BOT_TOKEN).build()
         
         # Add handlers

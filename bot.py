@@ -76,6 +76,31 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"Error in admin command: {e}")
         await update.message.reply_text("❌ Error loading admin panel.")
 
+async def channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /channel command - show channel management"""
+    telegram_id = update.effective_user.id
+    
+    # Check if admin
+    ADMIN_IDS = [5475526744, 5687217504]
+    
+    if telegram_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Access denied. Admin only.")
+        return
+    
+    try:
+        from channel_manager import get_channel_management_keyboard
+        keyboard = get_channel_management_keyboard()
+        
+        await update.message.reply_text(
+            "📢 **Channel Management** 📢\n\n"
+            "Choose an action:",
+            reply_markup=keyboard
+        )
+        
+    except Exception as e:
+        logging.error(f"Error in channel_command: {e}")
+        await update.message.reply_text("❌ Error loading channel management.")
+
 async def add_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /addchannel command"""
     telegram_id = update.effective_user.id
